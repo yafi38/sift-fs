@@ -1,0 +1,65 @@
+[project]
+name = "siftfs"
+dynamic = ["version"]
+description = "A PyTorch-native, general-purpose constrained feature selection library for tabular data, edge computing, and IoT ML."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "Mashrur Ahmed Yafi", email = "yafi2475@gmail.com" },
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+keywords = ["feature-selection", "feature-budget", "tiny-ml", "edge-ai", "iot", "pytorch"]
+dependencies = [
+    "numpy>=2.0",
+    "scikit-learn>=1.5",
+    "torch>=2.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/yafi38/sift-fs"
+Repository = "https://github.com/yafi38/sift-fs"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.4",
+]
+bench = [
+    "matplotlib>=3.9",
+    "pandas>=2.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/siftfs/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/siftfs"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+warn_unused_configs = true
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = [".venv", "*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
