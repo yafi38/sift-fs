@@ -309,8 +309,15 @@ for ax, clf_name in zip(axes, ["RF", "SVM", "KNN"]):
         mdf = subset[subset["method"] == method_name].sort_values("panel_size")
         x = np.arange(len(mdf))
         w = 0.18
-        ax.bar(x + i * w - 1.5 * w, mdf["n_acc"], w, label=f"{method_name} Acc", color=colors[method_name], alpha=0.8)
-        ax.bar(x + i * w - 1.5 * w, mdf["n_gyro"], w, bottom=mdf["n_acc"], label=f"{method_name} Gyro", color=colors[method_name], alpha=0.4)
+        offset = i * w - 1.5 * w
+        ax.bar(
+            x + offset, mdf["n_acc"], w,
+            label=f"{method_name} Acc", color=colors[method_name], alpha=0.8,
+        )
+        ax.bar(
+            x + offset, mdf["n_gyro"], w, bottom=mdf["n_acc"],
+            label=f"{method_name} Gyro", color=colors[method_name], alpha=0.4,
+        )
     ax.set_title(f"Downstream: {clf_name}", fontsize=12)
     ax.set_xlabel("Panel size")
     ax.set_ylabel("Features" if clf_name == "RF" else "")

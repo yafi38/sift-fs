@@ -46,7 +46,7 @@ def convert(path: Path) -> dict:
     for ctype, text in raw_cells:
         if ctype == "code":
             # Unmask `# !pip ...` cell magics into notebook `!pip ...`.
-            code = "\n".join(MAGIC.sub(r"!\1", l) for l in text.splitlines())
+            code = "\n".join(MAGIC.sub(r"!\1", line) for line in text.splitlines())
             cells.append(
                 {"cell_type": "code", "execution_count": None, "metadata": {},
                  "outputs": [], "source": code.splitlines(keepends=True)}
