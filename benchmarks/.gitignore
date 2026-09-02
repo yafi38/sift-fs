@@ -1,0 +1,8 @@
+# Downloaded datasets (large, noisy diffs)
+uci_har/
+
+# Generated figures / results
+figures/
+
+# Byte-compiled files
+__pycache__/
