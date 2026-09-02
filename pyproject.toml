@@ -4,12 +4,13 @@ dynamic = ["version"]
 description = "A PyTorch-native, general-purpose constrained feature selection library for tabular data, edge computing, and IoT ML."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 authors = [
     { name = "Mashrur Ahmed Yafi", email = "yafi2475@gmail.com" },
 ]
 classifiers = [
     "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
