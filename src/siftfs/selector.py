@@ -257,7 +257,11 @@ class FeatureSelector:
 
     @staticmethod
     def _rank_features(scores: Array) -> list[int]:
-        return sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        # Rank by absolute weight, matching scGIST's ``get_markers_indices``
+        # (which sorts ``abs(weights)`` descending). A large-magnitude weight is
+        # influential regardless of its sign, so it must not be dropped just
+        # because it trained negative.
+        return sorted(range(len(scores)), key=lambda i: abs(scores[i]), reverse=True)
 
     def get_selected_features(self) -> list[int]:
         """Return the indices of the selected features.
