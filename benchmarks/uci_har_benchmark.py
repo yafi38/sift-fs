@@ -116,9 +116,12 @@ print(f"Activities: {activity_labels}")
 print(f"Features: {len(feature_names)}")
 
 # %% [markdown]
-# ## 2. Sensor Grouping
+# ## 2. Sensor Grouping (reporting only)
 #
-# Map each of the 561 features to its physical sensor origin:
+# Map each of the 561 features to its physical sensor origin so we can report the
+# sensor activation per method. This is *not* passed to sift-fs as a group
+# penalty — it mirrors scGIST's UCI benchmark, which applies no pairs/group
+# constraint.
 # - **Accelerometer** — feature name contains `Acc`
 # - **Gyroscope** — feature name contains `Gyro`
 # - **Other** — `angle(...)` features (3 total)
@@ -132,8 +135,6 @@ print(f"Accelerometer features: {len(acc_idx)}")
 print(f"Gyroscope features:     {len(gyro_idx)}")
 print(f"Other (angle) features: {len(other_idx)}")
 assert len(acc_idx) + len(gyro_idx) + len(other_idx) == len(feature_names)
-
-SENSOR_GROUPS = [acc_idx, gyro_idx]
 
 # %% [markdown]
 # ## 3. Downstream Classifiers
@@ -176,15 +177,19 @@ def evaluate(
 def run_siftfs(
     X_tr: np.ndarray, y_tr: np.ndarray, panel_size: int,
 ) -> np.ndarray:
-    """Run sift-fs and return selected feature indices."""
+    """Run sift-fs and return selected feature indices.
+
+    Mirrors the scGIST UCI benchmark exactly: same hidden topology ``(32, 16)``,
+    same ``alpha=1.5``, fixed 200 epochs (no early stopping), no group/pairs
+    constraint.
+    """
     sel = FeatureSelector(
         panel_size=panel_size,
-        groups=SENSOR_GROUPS,
         l1=0.01,
-        hidden_dims=(64, 32),
+        hidden_dims=(32, 16),
+        alpha=1.5,
         epochs=200,
-        early_stop=True,
-        patience=15,
+        early_stop=False,
         seed=RANDOM_STATE,
     )
     sel.fit(X_tr, y_tr)
