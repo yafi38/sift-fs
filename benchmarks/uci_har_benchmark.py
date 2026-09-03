@@ -339,11 +339,11 @@ print(f"Saved: {FIGURES_DIR / 'sensor_activation.png'}")
 # ## 8. Summary Table
 
 # %%
-best_per_method = (
-    df.groupby(["method", "panel_size", "classifier"])
-    .agg(acc="acc", macro_f1="macro_f1", sensors_on="sensors_on", n_acc="n_acc", n_gyro="n_gyro")
-    .reset_index()
-)
+# Each (method, panel_size, classifier) combo has exactly one row, so no true
+# aggregation is needed — just select the columns and de-duplicate. This avoids
+# the pandas 3.x change that dropped the string-kwarg `.agg(new="old")` form.
+cols = ["method", "panel_size", "classifier", "acc", "macro_f1", "sensors_on", "n_acc", "n_gyro"]
+best_per_method = df[cols].drop_duplicates(subset=["method", "panel_size", "classifier"])
 best_per_method = best_per_method.sort_values(["classifier", "panel_size", "method"])
 print(best_per_method.to_string(index=False, float_format="{:.3f}".format))
 
