@@ -37,6 +37,10 @@ FIGURES_DIR.mkdir(exist_ok=True)
 PANEL_SIZES = [5, 10, 20, 50, 100, 200, 300]
 RANDOM_STATE = 42
 
+# Set False to run only sift-fs and skip the RF-RFE / Lasso / MI baselines
+# (useful while developing sift-fs — the baselines are the slow part).
+RUN_ALL_METHODS = False
+
 # %% [markdown]
 # ## 1. Load UCI HAR Dataset
 
@@ -240,6 +244,9 @@ METHODS = {
     "MI": run_mi,
 }
 
+# Honor the RUN_ALL_METHODS flag: when False, only run sift-fs.
+methods_to_run = METHODS if RUN_ALL_METHODS else {"sift-fs": METHODS["sift-fs"]}
+
 # %% [markdown]
 # ## 5. Run Benchmark
 
@@ -247,7 +254,7 @@ METHODS = {
 results_rows: list[dict] = []
 selected_features_cache: dict[tuple[str, int], np.ndarray] = {}
 
-for method_name, method_fn in METHODS.items():
+for method_name, method_fn in methods_to_run.items():
     for ps in PANEL_SIZES:
         print(f"  {method_name:8s}  d={ps:3d}  ...", end=" ", flush=True)
         indices = method_fn(X_train, y_train, ps)
@@ -271,7 +278,10 @@ for method_name, method_fn in METHODS.items():
                 **metrics,
             })
         best_clf = max(clf_results, key=lambda k: clf_results[k]["acc"])
-        print(f"best={best_clf}  acc={clf_results[best_clf]['acc']:.3f}")
+        print(
+            f"best={best_clf}  acc={clf_results[best_clf]['acc']:.3f}"
+            f"  macro_f1={clf_results[best_clf]['macro_f1']:.3f}"
+        )
 
 df = pd.DataFrame(results_rows)
 print("\n", df.pivot_table(
@@ -287,7 +297,7 @@ colors = {"sift-fs": "#e74c3c", "RF-RFE": "#3498db", "Lasso": "#2ecc71", "MI": "
 
 for ax, clf_name in zip(axes, ["RF", "SVM", "KNN"]):
     subset = df[df["classifier"] == clf_name]
-    for method_name in METHODS:
+    for method_name in methods_to_run:
         mdf = subset[subset["method"] == method_name].sort_values("panel_size")
         ax.plot(mdf["panel_size"], mdf["acc"], "o-", label=method_name,
                 color=colors[method_name], linewidth=2, markersize=5)
@@ -310,7 +320,7 @@ fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharey=True)
 
 for ax, clf_name in zip(axes, ["RF", "SVM", "KNN"]):
     subset = df[df["classifier"] == clf_name]
-    for i, method_name in enumerate(METHODS):
+    for i, method_name in enumerate(methods_to_run):
         mdf = subset[subset["method"] == method_name].sort_values("panel_size")
         x = np.arange(len(mdf))
         w = 0.18
