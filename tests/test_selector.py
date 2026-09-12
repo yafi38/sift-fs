@@ -51,6 +51,41 @@ def test_get_selected_features_before_fit_raises() -> None:
         sel.get_selected_features()
 
 
+def test_transform_before_fit_raises() -> None:
+    sel = FeatureSelector(panel_size=3)
+    with pytest.raises(RuntimeError):
+        sel.transform(np.zeros((10, 5)))
+
+
+def test_non_strict_caps_selection_to_significant_features() -> None:
+    X, y = make_data()
+    sel = FeatureSelector(
+        panel_size=5, epochs=20, validation_split=0.2, strict=False
+    )
+    sel.fit(X, y)
+    feats = sel.get_selected_features()
+    # Non-strict mode may return fewer than panel_size features, never more.
+    assert len(feats) <= 5
+    assert all(0 <= i < X.shape[1] for i in feats)
+
+
+def test_non_strict_high_threshold_yields_empty_selection() -> None:
+    """With no feature exceeding the significance threshold, d caps to zero.
+
+    Mirrors scGIST's ``min(panel_size, n_significant) == 0`` behavior.
+    """
+    X, y = make_data()
+    sel = FeatureSelector(
+        panel_size=5,
+        epochs=20,
+        validation_split=0.2,
+        strict=False,
+        significance_threshold=100.0,
+    )
+    sel.fit(X, y)
+    assert sel.get_selected_features() == []
+
+
 def test_early_stop_false_trains_fixed_epochs() -> None:
     X, y = make_data()
     sel = FeatureSelector(panel_size=5, epochs=3, early_stop=False, validation_split=0.2)

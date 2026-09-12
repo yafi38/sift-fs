@@ -8,7 +8,7 @@ Ports scGIST's ``FeatureRegularizer`` to PyTorch. The composite loss balances
     * an optional group term that keeps or drops whole physical groups together.
 
 All penalties operate on the gating layer's continuous ``score`` (its raw weights).
-The signs of the penalty coefficients are folded in so users pass ``lambda_``,
+The signs of the penalty coefficients are folded in so users pass ``l1``,
 ``alpha``, ``beta``, ``gamma`` as the *strength* of each term.
 """
 
@@ -74,18 +74,15 @@ class FeatureSelectorLoss:
 
         self.groups = groups
 
-    def __call__(self, task_loss: Tensor, *, output: Tensor | None = None) -> Tensor:
+    def __call__(self, task_loss: Tensor) -> Tensor:
         """Combine a task loss with the feature-selection penalties.
 
         Args:
             task_loss: The scalar task loss (e.g., cross-entropy) to keep.
-            output: Pass-through slot for future auxiliary outputs. Currently
-                unused; retained for API stability.
 
         Returns:
             The combined scalar loss.
         """
-        del output  # reserved
         return task_loss + self._regularization()
 
     def _regularization(self) -> Tensor:
@@ -103,7 +100,7 @@ class FeatureSelectorLoss:
             else:
                 reg = reg + torch.clamp_min(count - self.panel_size, 0.0) * self.alpha
 
-        # Reward including prioritized genes.
+        # Reward including prioritized features.
         if self.s is not None:
             one = torch.ones_like(x)
             reg = reg + torch.sum((one - torch.minimum(x, one)) * self.s) * self.beta

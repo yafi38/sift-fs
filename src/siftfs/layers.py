@@ -44,11 +44,6 @@ class FeatureGatingLayer(nn.Module):
         return inputs * self.weight
 
     @property
-    def weights(self) -> torch.Tensor:
-        """The raw, unbounded per-feature weights."""
-        return self.weight
-
-    @property
     def score(self) -> torch.Tensor:
         """Continuous selection score (the raw weights).
 

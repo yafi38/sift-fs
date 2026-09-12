@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from siftfs.layers import FeatureGatingLayer
@@ -82,8 +83,5 @@ def test_call_combines_task_loss_and_regularization() -> None:
 
 def test_priority_scores_length_mismatch_raises() -> None:
     layer = _layer([1.0, 0.0])
-    try:
+    with pytest.raises(ValueError):
         FeatureSelectorLoss(layer, priority_scores=[1.0, 0.0, 0.0])
-    except ValueError:
-        return
-    raise AssertionError("expected ValueError for length mismatch")

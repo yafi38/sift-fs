@@ -47,9 +47,7 @@ class _MaskedMLP(nn.Module):
             prev = width
         layers.append(nn.Linear(prev, n_classes))
         self.task = nn.Sequential(*layers)
-        self._l2_weights: list[nn.Parameter] = [
-            w for m in self.task for w in m.parameters() if w.ndim == 2
-        ]
+        self._l2_weights: list[nn.Parameter] = [w for m in self.task for w in m.parameters() if w.ndim == 2]
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return cast(torch.Tensor, self.task(self.gating(x)))
@@ -73,6 +71,9 @@ class FeatureSelector:
         beta: Strength of the priority penalty.
         gamma: Strength of the group penalty.
         strict: Exact-``d`` (``True``) or at-most-``d`` (``False``) budget.
+        significance_threshold: In non-strict mode, gate weights with absolute
+            magnitude at or below this value are treated as inactive and excluded,
+            and ``d`` is capped to the number of significant features (scGIST: 0.01).
         l1: Overall scaling of the feature-selection regularization (scGIST: 0.01).
         l2_decay: L2 penalty coefficient on the task MLP weights (scGIST: 0.01).
         hidden_dims: Hidden layer widths of the task MLP.
@@ -99,6 +100,7 @@ class FeatureSelector:
         beta: float = 0.2,
         gamma: float = 0.5,
         strict: bool = True,
+        significance_threshold: float = 0.01,
         l1: float = 0.01,
         l2_decay: float = 0.01,
         hidden_dims: tuple[int, ...] = (32, 16),
@@ -124,6 +126,7 @@ class FeatureSelector:
         self.beta = beta
         self.gamma = gamma
         self.strict = strict
+        self.significance_threshold = significance_threshold
         self.l1 = l1
         self.l2_decay = l2_decay
         self.hidden_dims = tuple(hidden_dims)
@@ -140,6 +143,15 @@ class FeatureSelector:
         self.gating_layer_: FeatureGatingLayer | None = None
         self.selected_indices_: list[int] | None = None
         self.feature_scores_: Array | None = None
+
+    def __repr__(self) -> str:
+        return (
+            f"FeatureSelector(panel_size={self.panel_size!r}, "
+            f"strict={self.strict!r}, alpha={self.alpha!r}, beta={self.beta!r}, "
+            f"gamma={self.gamma!r}, l1={self.l1!r}, l2_decay={self.l2_decay!r}, "
+            f"hidden_dims={self.hidden_dims!r}, epochs={self.epochs!r}, "
+            f"lr={self.lr!r}, batch_size={self.batch_size!r})"
+        )
 
     def fit(self, X: Array, y: npt.ArrayLike) -> FeatureSelector:
         """Train the gating network and record the selected features.
@@ -158,24 +170,23 @@ class FeatureSelector:
         n_features = X.shape[1]
 
         if self.panel_size > n_features:
-            raise ValueError(
-                f"panel_size {self.panel_size} exceeds n_features {n_features}"
-            )
+            raise ValueError(f"panel_size {self.panel_size} exceeds n_features {n_features}")
         labels = np.unique(y)
         n_classes = int(labels.shape[0])
         encoded = np.searchsorted(labels, y)
 
         X_train, X_val, y_train, y_val = train_test_split(
-            X, encoded, test_size=self.validation_split,
-            random_state=self.seed, stratify=encoded,
+            X,
+            encoded,
+            test_size=self.validation_split,
+            random_state=self.seed,
+            stratify=encoded,
         )
 
         # Balance the classes in the task loss (matches scGIST's balanced
-        # class weighting) so minority cell types still influence which
+        # class weighting) so minority classes still influence which
         # features get selected.
-        class_weights = compute_class_weight(
-            "balanced", classes=np.arange(n_classes), y=y_train
-        )
+        class_weights = compute_class_weight("balanced", classes=np.arange(n_classes), y=y_train)
         class_weight_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
 
         torch.manual_seed(self.seed)
@@ -187,9 +198,7 @@ class FeatureSelector:
         loss_fn = self._make_loss(model.gating)
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
 
-        train_ds = TensorDataset(
-            torch.from_numpy(X_train), torch.from_numpy(y_train)
-        )
+        train_ds = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
         val_ds = TensorDataset(torch.from_numpy(X_val), torch.from_numpy(y_val))
         train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True, generator=torch_generator)
         val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
@@ -239,7 +248,14 @@ class FeatureSelector:
 
         self.gating_layer_ = model.gating
         self.feature_scores_ = model.gating.score.detach().cpu().numpy()
-        self.selected_indices_ = self._rank_features(self.feature_scores_)[: self.panel_size]
+        ranked = self._rank_features(self.feature_scores_)
+        if self.strict:
+            self.selected_indices_ = ranked[: self.panel_size]
+        else:
+            # Match scGIST's get_markers_indices: non-strict counts only features
+            # with a significant absolute weight, then caps d to that count.
+            significant = int((np.abs(self.feature_scores_) > self.significance_threshold).sum())
+            self.selected_indices_ = ranked[: min(self.panel_size, significant)]
         return self
 
     def _make_loss(self, gating: FeatureGatingLayer) -> FeatureSelectorLoss:
@@ -274,7 +290,13 @@ class FeatureSelector:
         return list(self.selected_indices_)
 
     def transform(self, X: Array) -> Array:
-        """Return only the selected feature columns of ``X``."""
+        """Return only the selected feature columns of ``X``.
+
+        Raises:
+            RuntimeError: If ``fit`` has not been called yet.
+        """
+        if self.selected_indices_ is None:
+            raise RuntimeError("Call fit before transform.")
         return np.asarray(X)[:, self.selected_indices_]
 
     def fit_transform(self, X: Array, y: npt.ArrayLike) -> Array:

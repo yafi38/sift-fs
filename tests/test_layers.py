@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from siftfs.layers import FeatureGatingLayer
@@ -46,8 +47,5 @@ def test_negative_init_allows_zero_start() -> None:
 
 
 def test_invalid_n_features_raises() -> None:
-    try:
+    with pytest.raises(ValueError):
         FeatureGatingLayer(n_features=0)
-    except ValueError:
-        return
-    raise AssertionError("expected ValueError for n_features=0")
