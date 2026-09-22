@@ -28,3 +28,6 @@ build/
 
 # OS / editor
 .DS_Store
+
+# Benchmark outputs (exploratory, not tracked)
+benchmarks/results/
