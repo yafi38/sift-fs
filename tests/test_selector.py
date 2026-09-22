@@ -114,10 +114,10 @@ def test_anneal_overrides_require_anneal_l1_true() -> None:
         FeatureSelector(panel_size=5, anneal_l1_epochs=10)
 
 
-def test_anneal_defaults_from_l1_and_epochs() -> None:
+def test_anneal_defaults_stay_unresolved_until_fit() -> None:
     sel = FeatureSelector(panel_size=5, l1=0.01, epochs=100, anneal_l1=True)
-    assert sel.anneal_l1_from == pytest.approx(0.01 / 1000)
-    assert sel.anneal_l1_epochs == 75
+    assert sel.anneal_l1_from is None
+    assert sel.anneal_l1_epochs is None
 
 
 def test_anneal_requires_positive_values() -> None:
@@ -129,21 +129,61 @@ def test_anneal_requires_positive_values() -> None:
         FeatureSelector(panel_size=5, l1=0.0, anneal_l1=True)
 
 
-def test_anneal_still_selects_exact_budget() -> None:
-    X, y = make_data()
+def test_anneal_from_must_be_below_l1() -> None:
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, l1=0.01, anneal_l1=True, anneal_l1_from=0.01)
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, l1=0.01, anneal_l1=True, anneal_l1_from=0.1)
+
+
+def test_anneal_epochs_must_not_exceed_epochs() -> None:
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, epochs=100, anneal_l1=True, anneal_l1_epochs=101)
+    FeatureSelector(panel_size=5, epochs=100, anneal_l1=True, anneal_l1_epochs=100)
+
+
+def test_l1_is_fixed_without_annealing() -> None:
+    sel = FeatureSelector(panel_size=5, l1=0.01, epochs=100)
+    assert all(sel._l1_for_epoch(e) == 0.01 for e in range(100))
+
+
+def test_anneal_ramps_geometrically_then_holds() -> None:
     sel = FeatureSelector(
-        panel_size=5,
-        epochs=20,
-        validation_split=0.2,
-        l1=0.01,
-        anneal_l1=True,
-        anneal_l1_from=1e-5,
-        anneal_l1_epochs=10,
+        panel_size=5, l1=0.01, epochs=100, anneal_l1=True, anneal_l1_from=1e-5, anneal_l1_epochs=50
     )
+    assert sel._l1_for_epoch(0) == pytest.approx(1e-5)
+    assert sel._l1_for_epoch(25) == pytest.approx((1e-5 * 0.01) ** 0.5)
+    assert sel._l1_for_epoch(50) == pytest.approx(0.01)
+    assert sel._l1_for_epoch(99) == pytest.approx(0.01)
+
+
+def test_anneal_default_schedule() -> None:
+    sel = FeatureSelector(panel_size=5, l1=0.01, epochs=100, anneal_l1=True)
+    assert sel._l1_for_epoch(0) == pytest.approx(0.01 / 1000)
+    assert sel._l1_for_epoch(74) < 0.01
+    assert sel._l1_for_epoch(75) == pytest.approx(0.01)
+
+
+def test_anneal_default_schedule_follows_epochs_changed_after_init() -> None:
+    sel = FeatureSelector(panel_size=5, l1=0.01, epochs=100, anneal_l1=True)
+    sel.epochs = 200
+    assert sel._l1_for_epoch(75) < 0.01
+    assert sel._l1_for_epoch(150) == pytest.approx(0.01)
+
+
+def test_anneal_selects_informative_features() -> None:
+    X, y = make_data()
+    sel = FeatureSelector(panel_size=4, epochs=25, anneal_l1=True)
     sel.fit(X, y)
-    feats = sel.get_selected_features()
-    assert len(feats) == 5
-    assert len(set(feats)) == 5
+    assert set(sel.get_selected_features()) == {0, 1, 2, 3}
+
+
+def test_repr_includes_anneal_settings() -> None:
+    sel = FeatureSelector(panel_size=5, anneal_l1=True, anneal_l1_from=1e-5, anneal_l1_epochs=10)
+    text = repr(sel)
+    assert "anneal_l1=True" in text
+    assert "anneal_l1_from=1e-05" in text
+    assert "anneal_l1_epochs=10" in text
 
 
 def test_high_dim_does_not_collapse_to_undifferentiated_weights() -> None:
