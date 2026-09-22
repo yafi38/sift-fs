@@ -100,6 +100,52 @@ def test_invalid_panel_size_raises() -> None:
         FeatureSelector(panel_size=0)
 
 
+def test_anneal_disabled_by_default() -> None:
+    sel = FeatureSelector(panel_size=5)
+    assert sel.anneal_l1 is False
+    assert sel.anneal_l1_from is None
+    assert sel.anneal_l1_epochs is None
+
+
+def test_anneal_overrides_require_anneal_l1_true() -> None:
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, anneal_l1_from=1e-4)
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, anneal_l1_epochs=10)
+
+
+def test_anneal_defaults_from_l1_and_epochs() -> None:
+    sel = FeatureSelector(panel_size=5, l1=0.01, epochs=100, anneal_l1=True)
+    assert sel.anneal_l1_from == pytest.approx(0.01 / 1000)
+    assert sel.anneal_l1_epochs == 75
+
+
+def test_anneal_requires_positive_values() -> None:
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, anneal_l1=True, anneal_l1_from=0.0)
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, anneal_l1=True, anneal_l1_epochs=0)
+    with pytest.raises(ValueError):
+        FeatureSelector(panel_size=5, l1=0.0, anneal_l1=True)
+
+
+def test_anneal_still_selects_exact_budget() -> None:
+    X, y = make_data()
+    sel = FeatureSelector(
+        panel_size=5,
+        epochs=20,
+        validation_split=0.2,
+        l1=0.01,
+        anneal_l1=True,
+        anneal_l1_from=1e-5,
+        anneal_l1_epochs=10,
+    )
+    sel.fit(X, y)
+    feats = sel.get_selected_features()
+    assert len(feats) == 5
+    assert len(set(feats)) == 5
+
+
 def test_high_dim_does_not_collapse_to_undifferentiated_weights() -> None:
     """Regression: gate weights must differentiate on high-dimensional data.
 
