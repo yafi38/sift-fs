@@ -74,6 +74,20 @@ class FeatureSelector:
             magnitude at or below this value are treated as inactive and excluded,
             and ``d`` is capped to the number of significant features (scGIST: 0.01).
         l1: Overall scaling of the feature-selection regularization (scGIST: 0.01).
+            When annealing is enabled (``anneal_l1``), this is the target value
+            ``l1`` ramps up to.
+        anneal_l1: When ``True``, ``l1`` ramps up exponentially from
+            ``anneal_l1_from`` to ``l1`` over ``anneal_l1_epochs`` epochs
+            instead of staying fixed at ``l1`` throughout training. Starting
+            well below ``l1`` lets the gating layer explore the feature space
+            with little selection pressure before the budget and binarization
+            penalties kick in. Defaults to ``False`` (fixed ``l1``).
+        anneal_l1_from: Starting value for the ``l1`` ramp. Only used when
+            ``anneal_l1`` is ``True``; defaults to ``l1 / 1000``.
+        anneal_l1_epochs: Number of epochs over which ``l1`` ramps from
+            ``anneal_l1_from`` to ``l1``; held at ``l1`` for any epochs beyond
+            this. Only used when ``anneal_l1`` is ``True``; defaults to
+            ``round(epochs * 0.75)``.
         l2_decay: L2 penalty coefficient on the task MLP weights (scGIST: 0.01).
         hidden_dims: Hidden layer widths of the task MLP.
         init: Initial value of each gate weight.
@@ -95,6 +109,9 @@ class FeatureSelector:
         strict: bool = True,
         significance_threshold: float = 0.01,
         l1: float = 0.01,
+        anneal_l1: bool = False,
+        anneal_l1_from: float | None = None,
+        anneal_l1_epochs: int | None = None,
         l2_decay: float = 0.01,
         hidden_dims: tuple[int, ...] = (32, 16),
         init: float = 0.5,
@@ -106,6 +123,21 @@ class FeatureSelector:
     ) -> None:
         if panel_size < 1:
             raise ValueError("panel_size must be a positive integer.")
+        if not anneal_l1 and (anneal_l1_from is not None or anneal_l1_epochs is not None):
+            raise ValueError(
+                "anneal_l1_from/anneal_l1_epochs require anneal_l1=True."
+            )
+        if anneal_l1:
+            if l1 <= 0:
+                raise ValueError("l1 must be positive when annealing is enabled.")
+            if anneal_l1_from is None:
+                anneal_l1_from = l1 / 1000
+            elif anneal_l1_from <= 0:
+                raise ValueError("anneal_l1_from must be positive.")
+            if anneal_l1_epochs is None:
+                anneal_l1_epochs = max(1, round(epochs * 0.75))
+            elif anneal_l1_epochs < 1:
+                raise ValueError("anneal_l1_epochs must be a positive integer.")
 
         self.panel_size = panel_size
         self.priority_scores = priority_scores
@@ -116,6 +148,9 @@ class FeatureSelector:
         self.strict = strict
         self.significance_threshold = significance_threshold
         self.l1 = l1
+        self.anneal_l1 = anneal_l1
+        self.anneal_l1_from = anneal_l1_from
+        self.anneal_l1_epochs = anneal_l1_epochs
         self.l2_decay = l2_decay
         self.hidden_dims = tuple(hidden_dims)
         self.init = init
@@ -180,7 +215,11 @@ class FeatureSelector:
         train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True, generator=torch_generator)
 
         model.train()
-        for _ in range(self.epochs):
+        for epoch in range(self.epochs):
+            if self.anneal_l1:
+                frac = min(epoch / self.anneal_l1_epochs, 1.0)
+                loss_fn.l1 = self.anneal_l1_from * (self.l1 / self.anneal_l1_from) ** frac
+
             for xb, yb in train_loader:
                 xb = xb.to(device)
                 yb = yb.to(device)
