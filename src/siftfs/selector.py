@@ -18,7 +18,6 @@ from typing import Any, cast
 import numpy as np
 import numpy.typing as npt
 import torch
-from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -81,13 +80,7 @@ class FeatureSelector:
         epochs: Number of training epochs.
         lr: Adam learning rate.
         batch_size: Minibatch size.
-        validation_split: Fraction of data held out for early stopping.
-        early_stop: When ``True``, stops training once validation performance stops
-            improving (patience) and restores the best checkpoint. When ``False``,
-            trains exactly ``epochs`` epochs and keeps the final weights (matching
-            scGIST's fixed-epoch behavior).
-        patience: Epochs of no validation improvement before early stopping.
-        device: Torch device; defaults to CUDA if available.
+        device: Torch device; when ``None``, CUDA is used if available at fit time.
         seed: Random seed for reproducibility.
     """
 
@@ -108,16 +101,11 @@ class FeatureSelector:
         epochs: int = 200,
         lr: float = 1e-3,
         batch_size: int = 64,
-        validation_split: float = 0.2,
-        early_stop: bool = True,
-        patience: int = 10,
         device: str | None = None,
         seed: int = 33,
     ) -> None:
         if panel_size < 1:
             raise ValueError("panel_size must be a positive integer.")
-        if not 0.0 <= validation_split < 1.0:
-            raise ValueError("validation_split must be in [0, 1).")
 
         self.panel_size = panel_size
         self.priority_scores = priority_scores
@@ -134,10 +122,7 @@ class FeatureSelector:
         self.epochs = epochs
         self.lr = lr
         self.batch_size = batch_size
-        self.validation_split = validation_split
-        self.early_stop = early_stop
-        self.patience = patience
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         self.seed = seed
 
         self.gating_layer_: FeatureGatingLayer | None = None
@@ -174,77 +159,37 @@ class FeatureSelector:
         labels = np.unique(y)
         n_classes = int(labels.shape[0])
         encoded = np.searchsorted(labels, y)
-
-        X_train, X_val, y_train, y_val = train_test_split(
-            X,
-            encoded,
-            test_size=self.validation_split,
-            random_state=self.seed,
-            stratify=encoded,
-        )
+        device = self._resolve_device()
 
         # Balance the classes in the task loss (matches scGIST's balanced
         # class weighting) so minority classes still influence which
         # features get selected.
-        class_weights = compute_class_weight("balanced", classes=np.arange(n_classes), y=y_train)
-        class_weight_tensor = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
+        class_weights = compute_class_weight("balanced", classes=np.arange(n_classes), y=encoded)
+        class_weight_tensor = torch.tensor(class_weights, dtype=torch.float32).to(device)
 
         torch.manual_seed(self.seed)
-        if self.device.startswith("cuda"):
+        if device.startswith("cuda"):
             torch.cuda.manual_seed_all(self.seed)
         torch_generator = torch.Generator().manual_seed(self.seed)
 
-        model = _MaskedMLP(n_features, n_classes, self.hidden_dims, self.init).to(self.device)
+        model = _MaskedMLP(n_features, n_classes, self.hidden_dims, self.init).to(device)
         loss_fn = self._make_loss(model.gating)
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
 
-        train_ds = TensorDataset(torch.from_numpy(X_train), torch.from_numpy(y_train))
-        val_ds = TensorDataset(torch.from_numpy(X_val), torch.from_numpy(y_val))
+        train_ds = TensorDataset(torch.from_numpy(X), torch.from_numpy(encoded))
         train_loader = DataLoader(train_ds, batch_size=self.batch_size, shuffle=True, generator=torch_generator)
-        val_loader = DataLoader(val_ds, batch_size=self.batch_size, shuffle=False)
 
-        best_val = float("inf")
-        best_state: dict[str, object] | None = None
-        stall = 0
-
+        model.train()
         for _ in range(self.epochs):
-            model.train()
             for xb, yb in train_loader:
-                xb = xb.to(self.device)
-                yb = yb.to(self.device)
+                xb = xb.to(device)
+                yb = yb.to(device)
                 optimizer.zero_grad()
                 logits = model(xb)
                 task_loss = nn.functional.cross_entropy(logits, yb, weight=class_weight_tensor)
                 total = loss_fn(task_loss) + 0.5 * self.l2_decay * model.l2_penalty()
                 total.backward()  # type: ignore[no-untyped-call]  # torch 2.13 stubs omit backward
                 optimizer.step()
-
-            if not self.early_stop:
-                continue
-
-            val_loss = 0.0
-            model.eval()
-            with torch.no_grad():
-                for xb, yb in val_loader:
-                    xb = xb.to(self.device)
-                    yb = yb.to(self.device)
-                    logits = model(xb)
-                    task_loss = nn.functional.cross_entropy(logits, yb, weight=class_weight_tensor)
-                    combined = loss_fn(task_loss) + 0.5 * self.l2_decay * model.l2_penalty()
-                    val_loss += combined.item() * xb.size(0)
-            val_loss /= max(len(val_ds), 1)
-
-            if val_loss < best_val:
-                best_val = val_loss
-                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
-                stall = 0
-            else:
-                stall += 1
-                if stall >= self.patience:
-                    break
-
-        if self.early_stop and best_state is not None:
-            model.load_state_dict(best_state)
 
         self.gating_layer_ = model.gating
         self.feature_scores_ = model.gating.score.detach().cpu().numpy()
@@ -257,6 +202,11 @@ class FeatureSelector:
             significant = int((np.abs(self.feature_scores_) > self.significance_threshold).sum())
             self.selected_indices_ = ranked[: min(self.panel_size, significant)]
         return self
+
+    def _resolve_device(self) -> str:
+        if self.device is not None:
+            return self.device
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
     def _make_loss(self, gating: FeatureGatingLayer) -> FeatureSelectorLoss:
         return FeatureSelectorLoss(

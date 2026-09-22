@@ -21,7 +21,7 @@ def make_data(n: int = 400, p: int = 20, seed: int = 0) -> tuple[np.ndarray, np.
 
 def test_fit_selects_exact_budget() -> None:
     X, y = make_data()
-    sel = FeatureSelector(panel_size=5, epochs=20, validation_split=0.2)
+    sel = FeatureSelector(panel_size=5, epochs=20)
     sel.fit(X, y)
     feats = sel.get_selected_features()
     assert len(feats) == 5
@@ -31,7 +31,7 @@ def test_fit_selects_exact_budget() -> None:
 
 def test_selects_informative_features() -> None:
     X, y = make_data()
-    sel = FeatureSelector(panel_size=4, epochs=25, validation_split=0.2)
+    sel = FeatureSelector(panel_size=4, epochs=25)
     sel.fit(X, y)
     feats = sel.get_selected_features()
     # The 4 informative features (0..3) should dominate the top-4 selection.
@@ -40,7 +40,7 @@ def test_selects_informative_features() -> None:
 
 def test_transform_returns_selected_columns() -> None:
     X, y = make_data()
-    sel = FeatureSelector(panel_size=4, epochs=10, validation_split=0.2)
+    sel = FeatureSelector(panel_size=4, epochs=10)
     Xt = sel.fit(X, y).transform(X)
     assert Xt.shape == (X.shape[0], 4)
 
@@ -59,9 +59,7 @@ def test_transform_before_fit_raises() -> None:
 
 def test_non_strict_caps_selection_to_significant_features() -> None:
     X, y = make_data()
-    sel = FeatureSelector(
-        panel_size=5, epochs=20, validation_split=0.2, strict=False
-    )
+    sel = FeatureSelector(panel_size=5, epochs=20, strict=False)
     sel.fit(X, y)
     feats = sel.get_selected_features()
     # Non-strict mode may return fewer than panel_size features, never more.
@@ -78,7 +76,6 @@ def test_non_strict_high_threshold_yields_empty_selection() -> None:
     sel = FeatureSelector(
         panel_size=5,
         epochs=20,
-        validation_split=0.2,
         strict=False,
         significance_threshold=100.0,
     )
@@ -86,13 +83,9 @@ def test_non_strict_high_threshold_yields_empty_selection() -> None:
     assert sel.get_selected_features() == []
 
 
-def test_early_stop_false_trains_fixed_epochs() -> None:
-    X, y = make_data()
-    sel = FeatureSelector(panel_size=5, epochs=3, early_stop=False, validation_split=0.2)
-    sel.fit(X, y)
-    feats = sel.get_selected_features()
-    assert len(feats) == 5
-    assert all(0 <= i < X.shape[1] for i in feats)
+def test_device_is_stored_as_given() -> None:
+    assert FeatureSelector(panel_size=3).device is None
+    assert FeatureSelector(panel_size=3, device="cpu").device == "cpu"
 
 
 def test_panel_size_larger_than_features_raises() -> None:
@@ -108,12 +101,11 @@ def test_invalid_panel_size_raises() -> None:
 
 
 def test_high_dim_does_not_collapse_to_undifferentiated_weights() -> None:
-    """Regression: early stopping must use the combined (task + reg) loss.
+    """Regression: gate weights must differentiate on high-dimensional data.
 
-    On high-dimensional data with few informative features, monitoring only the
-    task cross-entropy for early stopping restored an early snapshot with uniform
-    (undifferentiated) gate weights, producing arbitrary garbage selection. The
-    combined loss keeps training so the informative features are ranked on top.
+    With few informative features among many, training once ended on a snapshot
+    with uniform (undifferentiated) gate weights, producing arbitrary selection.
+    The informative features must be ranked on top.
     """
     rng = np.random.RandomState(0)
     n, p = 1500, 2000

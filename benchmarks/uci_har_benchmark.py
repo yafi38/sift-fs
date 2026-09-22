@@ -184,7 +184,7 @@ def run_siftfs(
     """Run sift-fs and return selected feature indices.
 
     Mirrors the scGIST UCI benchmark exactly: same hidden topology ``(32, 16)``,
-    same ``alpha=1.5``, fixed 200 epochs (no early stopping), no group/pairs
+    same ``alpha=1.5``, fixed 200 epochs, no group/pairs
     constraint.
     """
     sel = FeatureSelector(
@@ -193,7 +193,6 @@ def run_siftfs(
         hidden_dims=(32, 16),
         alpha=1.5,
         epochs=200,
-        early_stop=False,
         seed=RANDOM_STATE,
     )
     sel.fit(X_tr, y_tr)
